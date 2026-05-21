@@ -1,8 +1,15 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Shuffle, Heart, Clock, DollarSign, ChefHat, ChevronLeft, ChevronRight, Star, Utensils, Flame, Bookmark, X, CheckCircle2 } from "lucide-react";
+import {
+  Search, Shuffle, Heart, Clock, DollarSign, ChefHat,
+  ChevronLeft, ChevronRight, Star, Utensils, Flame,
+  Bookmark, X, CheckCircle2, LogIn, LogOut, User,
+} from "lucide-react";
+import { createClient } from "../utils/supabase/client";
+
+const supabase = createClient();
 
 const recipes = [
   {
@@ -88,6 +95,41 @@ export default function App() {
   const [saved, setSaved] = useState([]);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
 
+  // Auth state
+  const [user, setUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // Listen to sign-in / sign-out events
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Load this user's saved recipes whenever they log in
+  useEffect(() => {
+    if (!user) { setSaved([]); return; }
+    supabase
+      .from("favorites")
+      .select("recipe_id")
+      .eq("user_id", user.id)
+      .then(({ data }) => {
+        if (data) setSaved(data.map((r) => r.recipe_id));
+      });
+  }, [user]);
+
   const filteredRecipes = useMemo(() => {
     return recipes.filter((recipe) => {
       const matchesFilter = activeFilter === "All" || recipe.tag === activeFilter;
@@ -119,15 +161,69 @@ export default function App() {
     setIndex(newIndex);
   };
 
-  const toggleSave = (recipeId) => {
-    setSaved((prev) =>
-      prev.includes(recipeId) ? prev.filter((id) => id !== recipeId) : [...prev, recipeId]
-    );
+  const toggleSave = async (recipeId) => {
+    // Prompt login if not authenticated
+    if (!user) { setShowAuthModal(true); return; }
+
+    const isSaved = saved.includes(recipeId);
+    if (isSaved) {
+      setSaved((prev) => prev.filter((id) => id !== recipeId)); // optimistic
+      await supabase
+        .from("favorites")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("recipe_id", recipeId);
+    } else {
+      setSaved((prev) => [...prev, recipeId]); // optimistic
+      await supabase
+        .from("favorites")
+        .insert({ user_id: user.id, recipe_id: recipeId });
+    }
   };
 
   const changeFilter = (filter) => {
     setActiveFilter(filter);
     setIndex(0);
+  };
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError("");
+    setAuthMessage("");
+
+    if (authMode === "signin") {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setAuthError(error.message);
+      } else {
+        setShowAuthModal(false);
+        setEmail("");
+        setPassword("");
+      }
+    } else {
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) {
+        setAuthError(error.message);
+      } else {
+        setAuthMessage("Account created! Check your email to confirm, then sign in.");
+        setAuthMode("signin");
+      }
+    }
+    setAuthLoading(false);
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const openAuthModal = () => {
+    setAuthError("");
+    setAuthMessage("");
+    setEmail("");
+    setPassword("");
+    setAuthMode("signin");
+    setShowAuthModal(true);
   };
 
   return (
@@ -144,11 +240,33 @@ export default function App() {
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white/80 p-4 shadow-sm ring-1 ring-slate-100">
-            <p className="text-sm font-medium text-slate-500">Testing goal</p>
-            <p className="mt-1 max-w-xs text-sm text-slate-700">
-              Can students find a low-cost, low-effort recipe without feeling overwhelmed?
-            </p>
+          <div className="flex flex-col items-end gap-3">
+            {user ? (
+              <div className="flex items-center gap-3 rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-slate-100">
+                <User size={16} className="text-orange-500" />
+                <span className="max-w-[160px] truncate text-sm font-medium text-slate-700">{user.email}</span>
+                <button
+                  onClick={handleSignOut}
+                  className="flex items-center gap-1 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
+                >
+                  <LogOut size={13} /> Sign out
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={openAuthModal}
+                className="flex items-center gap-2 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white shadow-md shadow-orange-200 transition hover:-translate-y-0.5 hover:bg-orange-600"
+              >
+                <LogIn size={16} /> Sign in to save recipes
+              </button>
+            )}
+
+            <div className="rounded-2xl bg-white/80 p-4 shadow-sm ring-1 ring-slate-100">
+              <p className="text-sm font-medium text-slate-500">Testing goal</p>
+              <p className="mt-1 max-w-xs text-sm text-slate-700">
+                Can students find a low-cost, low-effort recipe without feeling overwhelmed?
+              </p>
+            </div>
           </div>
         </header>
 
@@ -328,11 +446,15 @@ export default function App() {
 
             <div className="rounded-[2rem] bg-white/85 p-6 shadow-lg shadow-orange-100 ring-1 ring-white">
               <h2 className="text-xl font-semibold">Saved recipes</h2>
-              <p className="mt-1 text-sm text-slate-500">A simple way to reduce decision fatigue.</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {user ? "Synced to your account." : "Sign in to save across devices."}
+              </p>
               <div className="mt-4 space-y-3">
                 {saved.length === 0 ? (
                   <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500 ring-1 ring-slate-100">
-                    No recipes saved yet. Tap the heart on a card.
+                    {user
+                      ? "No recipes saved yet. Tap the heart on a card."
+                      : "Sign in and tap the heart to save recipes."}
                   </div>
                 ) : (
                   recipes
@@ -360,6 +482,7 @@ export default function App() {
         </main>
       </div>
 
+      {/* Recipe detail modal */}
       <AnimatePresence>
         {selectedRecipe && (
           <motion.div
@@ -424,6 +547,99 @@ export default function App() {
               >
                 Done
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Auth modal */}
+      <AnimatePresence>
+        {showAuthModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowAuthModal(false); }}
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0, scale: 0.96 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 40, opacity: 0, scale: 0.96 }}
+              className="w-full max-w-md rounded-[2rem] bg-white p-8 shadow-2xl"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold">
+                  {authMode === "signin" ? "Sign in" : "Create account"}
+                </h2>
+                <button
+                  onClick={() => setShowAuthModal(false)}
+                  className="rounded-full bg-slate-100 p-2 text-slate-500 transition hover:bg-slate-200"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <p className="mt-1 text-sm text-slate-500">
+                {authMode === "signin"
+                  ? "Sign in to save and sync your favorite recipes."
+                  : "Create a free account to save recipes across devices."}
+              </p>
+
+              <form onSubmit={handleAuth} className="mt-6 space-y-4">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
+                  />
+                </div>
+
+                {authError && (
+                  <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600 ring-1 ring-red-100">
+                    {authError}
+                  </p>
+                )}
+                {authMessage && (
+                  <p className="rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700 ring-1 ring-green-100">
+                    {authMessage}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={authLoading}
+                  className="w-full rounded-2xl bg-orange-500 px-5 py-4 font-semibold text-white shadow-lg shadow-orange-200 transition hover:-translate-y-0.5 hover:bg-orange-600 disabled:opacity-60"
+                >
+                  {authLoading
+                    ? "Please wait…"
+                    : authMode === "signin" ? "Sign in" : "Create account"}
+                </button>
+              </form>
+
+              <p className="mt-5 text-center text-sm text-slate-500">
+                {authMode === "signin" ? "No account yet? " : "Already have an account? "}
+                <button
+                  onClick={() => { setAuthMode(authMode === "signin" ? "signup" : "signin"); setAuthError(""); setAuthMessage(""); }}
+                  className="font-semibold text-orange-500 hover:underline"
+                >
+                  {authMode === "signin" ? "Sign up" : "Sign in"}
+                </button>
+              </p>
             </motion.div>
           </motion.div>
         )}
