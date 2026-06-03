@@ -6,6 +6,14 @@
 
 const CUSTOM_RECIPES_KEY = "custom_recipes";
 
+// Cloud custom_recipes ids start at 1 (identity column) and would collide with
+// the built-in recipes (ids 1–10). Offset cloud ids into a separate numeric
+// range so every recipe in the deck has a unique id. The real DB row id is
+// recovered by subtracting the offset for update/delete.
+const CLOUD_ID_OFFSET = 1_000_000;
+const toClientId = (rowId) => CLOUD_ID_OFFSET + Number(rowId);
+const toDbId = (clientId) => Number(clientId) - CLOUD_ID_OFFSET;
+
 export function isCloudEnabled() {
   return Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -86,7 +94,7 @@ function payloadToRow(payload) {
 
 function rowToRecipe(row) {
   return {
-    id: row.id,
+    id: toClientId(row.id),
     title: row.title,
     subtitle: row.subtitle,
     time: row.time,
@@ -187,7 +195,7 @@ export async function updateRecipeAsync(supabase, userId, id, updates) {
       .from("custom_recipes")
       .update(payloadToRow(merged))
       .eq("user_id", userId)
-      .eq("id", id)
+      .eq("id", toDbId(id))
       .select()
       .single();
     if (error) return { ok: false, error: error.message };
@@ -215,7 +223,7 @@ export async function deleteRecipeAsync(supabase, userId, id) {
       .from("custom_recipes")
       .delete()
       .eq("user_id", userId)
-      .eq("id", id);
+      .eq("id", toDbId(id));
     if (error) return { ok: false, error: error.message };
     writeStorage(readStorage().filter((r) => r.id !== id));
     return { ok: true };
