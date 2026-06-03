@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Shuffle, Heart, Clock, DollarSign, ChefHat,
   ChevronLeft, ChevronRight, Star, Utensils, Flame,
   Bookmark, X, CheckCircle2, LogIn, LogOut, User,
+  History, BarChart2,
 } from "lucide-react";
 import { createClient } from "../utils/supabase/client";
 
@@ -105,6 +106,10 @@ export default function App() {
   const [authMessage, setAuthMessage] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
 
+  // History: tracks which recipe cards the user has browsed / opened
+  const [viewHistory, setViewHistory] = useState([]); // [{recipeId, action, timestamp}]
+  const userRef = useRef(null); // stable ref so trackView never captures a stale user
+
   // Listen to sign-in / sign-out events
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -130,6 +135,34 @@ export default function App() {
       });
   }, [user]);
 
+  // Keep userRef current so trackView never reads a stale user value
+  useEffect(() => { userRef.current = user; }, [user]);
+
+  // Restore browsing history from localStorage on first mount (works when logged out too)
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("recipe_history");
+      if (stored) setViewHistory(JSON.parse(stored));
+    } catch {}
+  }, []);
+
+  // Record one view event: persists to localStorage and, when signed in, to Supabase
+  const trackView = useCallback(async (recipeId, action = "browsed") => {
+    const entry = { recipeId, action, timestamp: new Date().toISOString() };
+    setViewHistory((prev) => {
+      const updated = [entry, ...prev].slice(0, 200);
+      try { localStorage.setItem("recipe_history", JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    if (userRef.current) {
+      supabase.from("recipe_history").insert({
+        user_id: userRef.current.id,
+        recipe_id: recipeId,
+        action_type: action,
+      }).then(() => {});
+    }
+  }, []);
+
   const filteredRecipes = useMemo(() => {
     return recipes.filter((recipe) => {
       const matchesFilter = activeFilter === "All" || recipe.tag === activeFilter;
@@ -141,6 +174,39 @@ export default function App() {
   }, [activeFilter, query]);
 
   const currentRecipe = filteredRecipes[index % Math.max(filteredRecipes.length, 1)];
+
+  // Fire a "browsed" event every time the visible card changes
+  useEffect(() => {
+    if (currentRecipe) trackView(currentRecipe.id, "browsed");
+  }, [currentRecipe?.id, trackView]); // trackView is stable (no deps)
+
+  // Last 5 distinct recipes the user has opened (clicked "Start Cooking")
+  const recentlyViewed = useMemo(() => {
+    const seen = new Set();
+    const result = [];
+    for (const entry of viewHistory) {
+      if (entry.action === "opened" && !seen.has(entry.recipeId)) {
+        seen.add(entry.recipeId);
+        const recipe = recipes.find((r) => r.id === entry.recipeId);
+        if (recipe) result.push({ recipe, timestamp: entry.timestamp });
+      }
+      if (result.length >= 5) break;
+    }
+    return result;
+  }, [viewHistory]);
+
+  // Category distribution across all browse + open events
+  const browsingStats = useMemo(() => {
+    const counts = {};
+    for (const entry of viewHistory) {
+      const recipe = recipes.find((r) => r.id === entry.recipeId);
+      if (recipe) counts[recipe.tag] = (counts[recipe.tag] || 0) + 1;
+    }
+    const total = viewHistory.length || 1;
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([tag, count]) => ({ tag, count, pct: Math.round((count / total) * 100) }));
+  }, [viewHistory]);
 
   const nextCard = () => {
     if (filteredRecipes.length === 0) return;
@@ -405,7 +471,7 @@ export default function App() {
                           </div>
 
                           <button
-                            onClick={() => setSelectedRecipe(currentRecipe)}
+                            onClick={() => { setSelectedRecipe(currentRecipe); trackView(currentRecipe.id, "opened"); }}
                             className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-4 font-semibold text-white shadow-lg shadow-orange-200 transition hover:-translate-y-0.5 hover:bg-orange-600"
                           >
                             Start Cooking <Flame size={18} />
@@ -474,6 +540,69 @@ export default function App() {
                         </div>
                       </div>
                     ))
+                )}
+              </div>
+            </div>
+
+            {/* Recently Opened */}
+            <div className="rounded-[2rem] bg-white/85 p-6 shadow-lg shadow-orange-100 ring-1 ring-white">
+              <div className="flex items-center gap-2">
+                <History size={20} className="text-orange-500" />
+                <h2 className="text-xl font-semibold">Recently Opened</h2>
+              </div>
+              <p className="mt-1 text-sm text-slate-500">Recipes you've clicked into.</p>
+              <div className="mt-4 space-y-3">
+                {recentlyViewed.length === 0 ? (
+                  <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500 ring-1 ring-slate-100">
+                    No recipes opened yet — hit "Start Cooking" on a card.
+                  </div>
+                ) : (
+                  recentlyViewed.map(({ recipe }) => (
+                    <button
+                      key={recipe.id}
+                      onClick={() => setSelectedRecipe(recipe)}
+                      className="flex w-full items-center gap-3 rounded-2xl bg-orange-50 p-3 ring-1 ring-orange-100 text-left transition hover:bg-orange-100"
+                    >
+                      <div className="text-2xl">{recipe.image}</div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">{recipe.title}</p>
+                        <p className="text-xs text-slate-500">{recipe.time} · {recipe.cost}</p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Your Taste Profile */}
+            <div className="rounded-[2rem] bg-white/85 p-6 shadow-lg shadow-orange-100 ring-1 ring-white">
+              <div className="flex items-center gap-2">
+                <BarChart2 size={20} className="text-orange-500" />
+                <h2 className="text-xl font-semibold">Your Taste Profile</h2>
+              </div>
+              <p className="mt-1 text-sm text-slate-500">
+                Based on {viewHistory.length} card{viewHistory.length !== 1 ? "s" : ""} browsed.
+              </p>
+              <div className="mt-4 space-y-3">
+                {browsingStats.length === 0 ? (
+                  <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500 ring-1 ring-slate-100">
+                    Browse some cards to see your preferences.
+                  </div>
+                ) : (
+                  browsingStats.map(({ tag, count, pct }) => (
+                    <div key={tag} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium text-slate-700">{tag}</span>
+                        <span className="text-xs text-slate-400">{count} view{count !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-orange-400 transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
