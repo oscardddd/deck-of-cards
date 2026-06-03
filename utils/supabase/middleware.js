@@ -6,7 +6,14 @@ export const createClient = (request) => {
     request: { headers: request.headers },
   });
 
-  const supabase = createServerClient(
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+  ) {
+    return supabaseResponse;
+  }
+
+  createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     {

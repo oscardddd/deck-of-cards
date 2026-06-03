@@ -6,13 +6,15 @@ import {
   Search, Shuffle, Heart, Clock, DollarSign, ChefHat,
   ChevronLeft, ChevronRight, Star, Utensils, Flame,
   Bookmark, X, CheckCircle2, LogIn, LogOut, User,
-  History, BarChart2,
+  History, BarChart2, Pencil,
 } from "lucide-react";
 import { createClient } from "../utils/supabase/client";
+import { mergeWithBuiltin, searchRecipes, syncCustomRecipesFromCloud } from "../utils/recipeCrud";
+import ModifyRecipesModal from "./ModifyRecipesModal";
 
 const supabase = createClient();
 
-const recipes = [
+const BUILTIN_RECIPES = [
   {
     id: 1,
     title: "Egg Fried Rice",
@@ -84,17 +86,131 @@ const recipes = [
       "Mix before eating."
     ],
     why: "Useful for people who are tired and do not want to fully cook."
+  },
+  {
+    id: 5,
+    title: "Avocado Toast",
+    subtitle: "Breakfast or snack in minutes",
+    time: "8 min",
+    cost: "$4",
+    level: "Beginner",
+    tag: "Quick Meal",
+    image: "🥑",
+    ingredients: ["Bread", "Avocado", "Lemon", "Salt", "Red pepper flakes"],
+    steps: [
+      "Toast bread until golden.",
+      "Mash avocado with lemon juice and salt.",
+      "Spread avocado on toast.",
+      "Top with pepper flakes and serve."
+    ],
+    why: "Fast fuel before class with almost no cleanup."
+  },
+  {
+    id: 6,
+    title: "Yogurt Berry Bowl",
+    subtitle: "No stove needed",
+    time: "5 min",
+    cost: "$5",
+    level: "Beginner",
+    tag: "No-Cook",
+    image: "🫐",
+    ingredients: ["Greek yogurt", "Frozen berries", "Granola", "Honey"],
+    steps: [
+      "Scoop yogurt into a bowl.",
+      "Add berries on top.",
+      "Sprinkle granola and drizzle honey.",
+      "Eat right away."
+    ],
+    why: "Good when you want something fresh without cooking."
+  },
+  {
+    id: 7,
+    title: "Bean Cheese Quesadilla",
+    subtitle: "Pantry staples only",
+    time: "12 min",
+    cost: "$7",
+    level: "Beginner",
+    tag: "Quick Meal",
+    image: "🧀",
+    ingredients: ["Tortilla", "Canned beans", "Shredded cheese", "Salsa"],
+    steps: [
+      "Heat a pan on medium.",
+      "Fill half a tortilla with beans and cheese.",
+      "Fold and cook 2 minutes per side until crispy.",
+      "Cut and serve with salsa."
+    ],
+    why: "Cheap protein and filling enough for a late study night."
+  },
+  {
+    id: 8,
+    title: "Peanut Butter Banana Toast",
+    subtitle: "Three-ingredient classic",
+    time: "5 min",
+    cost: "$3",
+    level: "Beginner",
+    tag: "No-Cook",
+    image: "🍌",
+    ingredients: ["Bread", "Peanut butter", "Banana"],
+    steps: [
+      "Toast bread if you like it warm.",
+      "Spread peanut butter evenly.",
+      "Slice banana on top.",
+      "Eat immediately."
+    ],
+    why: "One of the cheapest meals that still feels satisfying."
+  },
+  {
+    id: 9,
+    title: "Tofu Veggie Stir-Fry",
+    subtitle: "Simple stove-top dinner",
+    time: "22 min",
+    cost: "$8",
+    level: "Easy",
+    tag: "Protein",
+    image: "🥦",
+    ingredients: ["Firm tofu", "Frozen stir-fry vegetables", "Soy sauce", "Garlic", "Rice"],
+    steps: [
+      "Cook rice according to package directions.",
+      "Cube tofu and pan-fry until golden.",
+      "Add vegetables and garlic; stir-fry 5 minutes.",
+      "Add soy sauce, serve over rice."
+    ],
+    why: "A budget-friendly protein option for students avoiding meat."
+  },
+  {
+    id: 10,
+    title: "Stovetop Mac and Cheese",
+    subtitle: "Warm comfort in one pot",
+    time: "18 min",
+    cost: "$6",
+    level: "Beginner",
+    tag: "Comfort",
+    image: "🧈",
+    ingredients: ["Macaroni", "Milk", "Butter", "Cheddar cheese", "Salt"],
+    steps: [
+      "Boil macaroni until tender, then drain.",
+      "Return pasta to pot on low heat.",
+      "Stir in butter, milk, and cheese until creamy.",
+      "Season with salt and eat warm."
+    ],
+    why: "Familiar comfort food when stress eating hits during exams."
   }
 ];
 
 const filters = ["All", "Quick Meal", "Protein", "Comfort", "No-Cook"];
 
 export default function App() {
+  const [allRecipes, setAllRecipes] = useState(BUILTIN_RECIPES);
+  const [showModifyRecipes, setShowModifyRecipes] = useState(false);
   const [activeFilter, setActiveFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const [saved, setSaved] = useState([]);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
+
+  const refreshAllRecipes = useCallback(() => {
+    setAllRecipes(mergeWithBuiltin(BUILTIN_RECIPES));
+  }, []);
 
   // Auth state
   const [user, setUser] = useState(null);
@@ -123,9 +239,13 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load this user's saved recipes whenever they log in
+  // Load favorites + custom recipes when user signs in
   useEffect(() => {
-    if (!user) { setSaved([]); return; }
+    if (!user) {
+      setSaved([]);
+      refreshAllRecipes();
+      return;
+    }
     supabase
       .from("favorites")
       .select("recipe_id")
@@ -133,7 +253,8 @@ export default function App() {
       .then(({ data }) => {
         if (data) setSaved(data.map((r) => r.recipe_id));
       });
-  }, [user]);
+    syncCustomRecipesFromCloud(supabase, user.id).then(() => refreshAllRecipes());
+  }, [user, refreshAllRecipes]);
 
   // Keep userRef current so trackView never reads a stale user value
   useEffect(() => { userRef.current = user; }, [user]);
@@ -164,14 +285,8 @@ export default function App() {
   }, []);
 
   const filteredRecipes = useMemo(() => {
-    return recipes.filter((recipe) => {
-      const matchesFilter = activeFilter === "All" || recipe.tag === activeFilter;
-      const matchesQuery = `${recipe.title} ${recipe.subtitle} ${recipe.ingredients.join(" ")}`
-        .toLowerCase()
-        .includes(query.toLowerCase());
-      return matchesFilter && matchesQuery;
-    });
-  }, [activeFilter, query]);
+    return searchRecipes(allRecipes, { query, tag: activeFilter });
+  }, [allRecipes, activeFilter, query]);
 
   const currentRecipe = filteredRecipes[index % Math.max(filteredRecipes.length, 1)];
 
@@ -187,26 +302,26 @@ export default function App() {
     for (const entry of viewHistory) {
       if (entry.action === "opened" && !seen.has(entry.recipeId)) {
         seen.add(entry.recipeId);
-        const recipe = recipes.find((r) => r.id === entry.recipeId);
+        const recipe = allRecipes.find((r) => r.id === entry.recipeId);
         if (recipe) result.push({ recipe, timestamp: entry.timestamp });
       }
       if (result.length >= 5) break;
     }
     return result;
-  }, [viewHistory]);
+  }, [viewHistory, allRecipes]);
 
   // Category distribution across all browse + open events
   const browsingStats = useMemo(() => {
     const counts = {};
     for (const entry of viewHistory) {
-      const recipe = recipes.find((r) => r.id === entry.recipeId);
+      const recipe = allRecipes.find((r) => r.id === entry.recipeId);
       if (recipe) counts[recipe.tag] = (counts[recipe.tag] || 0) + 1;
     }
     const total = viewHistory.length || 1;
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
       .map(([tag, count]) => ({ tag, count, pct: Math.round((count / total) * 100) }));
-  }, [viewHistory]);
+  }, [viewHistory, allRecipes]);
 
   const nextCard = () => {
     if (filteredRecipes.length === 0) return;
@@ -349,12 +464,21 @@ export default function App() {
                 <h2 className="text-2xl font-semibold">Choose your next meal</h2>
                 <p className="mt-1 text-sm text-slate-500">Browse cards by swiping, searching, or using filters.</p>
               </div>
-              <button
-                onClick={randomCard}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-300 transition hover:-translate-y-0.5 hover:bg-slate-800"
-              >
-                <Shuffle size={17} /> Shake / Shuffle
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowModifyRecipes(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-orange-700 shadow-md ring-1 ring-orange-200 transition hover:-translate-y-0.5 hover:bg-orange-50"
+                >
+                  <Pencil size={17} /> Modify Recipe
+                </button>
+                <button
+                  onClick={randomCard}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-300 transition hover:-translate-y-0.5 hover:bg-slate-800"
+                >
+                  <Shuffle size={17} /> Shake / Shuffle
+                </button>
+              </div>
             </div>
 
             <div className="mb-5 flex flex-col gap-3 md:flex-row">
@@ -529,7 +653,7 @@ export default function App() {
                       : "Sign in and tap the heart to save recipes."}
                   </div>
                 ) : (
-                  recipes
+                  allRecipes
                     .filter((recipe) => saved.includes(recipe.id))
                     .map((recipe) => (
                       <div key={recipe.id} className="flex items-center gap-3 rounded-2xl bg-orange-50 p-3 ring-1 ring-orange-100">
@@ -779,6 +903,18 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ModifyRecipesModal
+        open={showModifyRecipes}
+        onClose={() => setShowModifyRecipes(false)}
+        builtinRecipes={BUILTIN_RECIPES}
+        user={user}
+        supabase={supabase}
+        onRecipesChange={() => {
+          refreshAllRecipes();
+          setIndex(0);
+        }}
+      />
     </div>
   );
 }
