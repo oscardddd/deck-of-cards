@@ -254,6 +254,28 @@ export default function App() {
         if (data) setSaved(data.map((r) => r.recipe_id));
       });
     syncCustomRecipesFromCloud(supabase, user.id).then(() => refreshAllRecipes());
+
+    // Pull this user's browsing history from the cloud so preferences
+    // follow them across devices. Cloud is the source of truth on login.
+    supabase
+      .from("recipe_history")
+      .select("recipe_id, action_type, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(200)
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn("recipe_history load failed:", error.message);
+          return;
+        }
+        const cloud = (data ?? []).map((row) => ({
+          recipeId: row.recipe_id,
+          action: row.action_type,
+          timestamp: row.created_at,
+        }));
+        setViewHistory(cloud);
+        try { localStorage.setItem("recipe_history", JSON.stringify(cloud)); } catch {}
+      });
   }, [user, refreshAllRecipes]);
 
   // Keep userRef current so trackView never reads a stale user value
@@ -280,7 +302,9 @@ export default function App() {
         user_id: userRef.current.id,
         recipe_id: recipeId,
         action_type: action,
-      }).then(() => {});
+      }).then(({ error }) => {
+        if (error) console.warn("recipe_history insert failed:", error.message);
+      });
     }
   }, []);
 
