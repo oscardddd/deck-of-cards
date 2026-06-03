@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Shuffle, Heart, Clock, DollarSign, ChefHat,
   ChevronLeft, ChevronRight, Star, Utensils, Flame,
-  Bookmark, X, CheckCircle2, LogIn, LogOut, User,
+  X, CheckCircle2, LogIn, LogOut, User,
   History, BarChart2, Pencil,
 } from "lucide-react";
 import { createClient } from "../utils/supabase/client";
@@ -471,13 +471,6 @@ export default function App() {
                 <LogIn size={16} /> Sign in to save recipes
               </button>
             )}
-
-            <div className="rounded-2xl bg-white/80 p-4 shadow-sm ring-1 ring-slate-100">
-              <p className="text-sm font-medium text-slate-500">Testing goal</p>
-              <p className="mt-1 max-w-xs text-sm text-slate-700">
-                Can students find a low-cost, low-effort recipe without feeling overwhelmed?
-              </p>
-            </div>
           </div>
         </header>
 
@@ -651,19 +644,6 @@ export default function App() {
           </section>
 
           <aside className="space-y-5">
-            <div className="rounded-[2rem] bg-slate-900 p-6 text-white shadow-xl shadow-slate-300">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold">Prototype tasks</h2>
-                <Bookmark size={22} />
-              </div>
-              <div className="mt-5 space-y-4">
-                <Task text="Find one meal under $10." />
-                <Task text="Move to the next card without using search." />
-                <Task text="Open a recipe and understand the first step." />
-                <Task text="Save one recipe you would actually try." />
-              </div>
-            </div>
-
             <div className="rounded-[2rem] bg-white/85 p-6 shadow-lg shadow-orange-100 ring-1 ring-white">
               <h2 className="text-xl font-semibold">Saved recipes</h2>
               <p className="mt-1 text-sm text-slate-500">
@@ -948,15 +928,6 @@ function InfoPill({ icon, label, value }) {
     <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100">
       <div className="flex items-center gap-2 text-slate-400">{icon}<span className="text-xs font-medium">{label}</span></div>
       <p className="mt-1 font-semibold text-slate-800">{value}</p>
-    </div>
-  );
-}
-
-function Task({ text }) {
-  return (
-    <div className="flex items-start gap-3 rounded-2xl bg-white/10 p-3 ring-1 ring-white/10">
-      <CheckCircle2 className="mt-0.5 shrink-0 text-orange-300" size={18} />
-      <p className="text-sm leading-5 text-slate-100">{text}</p>
     </div>
   );
 }
