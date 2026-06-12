@@ -212,7 +212,6 @@ export default function App() {
     setAllRecipes(mergeWithBuiltin(BUILTIN_RECIPES));
   }, []);
 
-  // Auth state
   const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState("signin");
@@ -222,11 +221,10 @@ export default function App() {
   const [authMessage, setAuthMessage] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
 
-  // History: tracks which recipe cards the user has browsed / opened
-  const [viewHistory, setViewHistory] = useState([]); // [{recipeId, action, timestamp}]
+  // Browsing history: [{ recipeId, action, timestamp }]
+  const [viewHistory, setViewHistory] = useState([]);
   const userRef = useRef(null); // stable ref so trackView never captures a stale user
 
-  // Listen to sign-in / sign-out events
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -239,7 +237,7 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load favorites + custom recipes when user signs in
+  // Load favorites + custom recipes when the user signs in
   useEffect(() => {
     if (!user) {
       setSaved([]);
@@ -278,10 +276,9 @@ export default function App() {
       });
   }, [user, refreshAllRecipes]);
 
-  // Keep userRef current so trackView never reads a stale user value
   useEffect(() => { userRef.current = user; }, [user]);
 
-  // Restore browsing history from localStorage on first mount (works when logged out too)
+  // Restore browsing history from localStorage on first mount (works logged out too)
   useEffect(() => {
     try {
       const stored = localStorage.getItem("recipe_history");
@@ -289,7 +286,7 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Record one view event: persists to localStorage and, when signed in, to Supabase
+  // Record one view event to localStorage and, when signed in, to Supabase
   const trackView = useCallback(async (recipeId, action = "browsed") => {
     const entry = { recipeId, action, timestamp: new Date().toISOString() };
     setViewHistory((prev) => {
@@ -367,7 +364,6 @@ export default function App() {
   };
 
   const toggleSave = async (recipeId) => {
-    // Prompt login if not authenticated
     if (!user) { setShowAuthModal(true); return; }
 
     const isSaved = saved.includes(recipeId);
@@ -672,7 +668,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Recently Opened */}
             <div className="rounded-[2rem] bg-white/85 p-6 shadow-lg shadow-orange-100 ring-1 ring-white">
               <div className="flex items-center gap-2">
                 <History size={20} className="text-orange-500" />
@@ -702,7 +697,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Your Taste Profile */}
             <div className="rounded-[2rem] bg-white/85 p-6 shadow-lg shadow-orange-100 ring-1 ring-white">
               <div className="flex items-center gap-2">
                 <BarChart2 size={20} className="text-orange-500" />

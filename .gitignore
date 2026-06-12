@@ -1,9 +1,12 @@
 node_modules/
 .next/
-node_modules/
-.next/
 dist/
 build/
 .env
 .env.local
 .vercel
+
+# Presentation and packaging artifacts (not part of the app)
+*.pptx
+build_pptx.py
+deck-of-cards.zip
